@@ -1,0 +1,159 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // دالة للتحقق من البريد الموثق للمالك السيادي
+    function isSovereignAdmin() {
+      return request.auth != null
+        && ('email' in request.auth.token)
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() == 'omralabis@gmail.com';
+    }
+
+    // قراءة الدور من وثيقة المستخدم (RBAC)
+    function userHasRole(roles) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in roles;
+    }
+
+    // دالة للتحقق من صلاحية المدير (Admin)
+    function isAdmin() {
+      return isSovereignAdmin() || userHasRole(['admin']);
+    }
+
+    // دالة للتحقق من صلاحية الموظف (Staff)
+    function isStaff() {
+      return isSovereignAdmin() || userHasRole(['admin', 'staff']);
+    }
+
+    // دالة للتحقق من صلاحية مندوب التوصيل (Driver)
+    function isDriver() {
+      return isSovereignAdmin() || userHasRole(['admin', 'driver']);
+    }
+
+    // Admins: تقييد الوصول لقائمة المدراء بالمدراء المعتمدين فقط
+    match /admins/{adminId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Orders: حماية الطلبات ودعم الطلبات المشتركة لفريق العمل (Staff/Admin/Driver) والعملاء لمشترياتهم فقط
+    match /orders/{orderId} {
+      allow get: if request.auth != null && (request.auth.uid == resource.data.userId || isStaff() || isDriver());
+      allow list: if isStaff() || isDriver() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow create: if (
+          (request.auth != null && request.resource.data.userId == request.auth.uid) ||
+          (request.resource.data.userId == 'guest' || !('userId' in request.resource.data))
+        )
+        && request.resource.data.status == 'pending'
+        && request.resource.data.items is list
+        && request.resource.data.total_amount is number
+        && request.resource.data.customer_name is string;
+      allow update: if isStaff() || isDriver();
+      allow delete: if isAdmin();
+    }
+
+    // Products: قراءة عامة، إنشاء وتعديل متاحان مع التحقق من صحة الحقول لدعم إضافة المنتجات للجميع، والحذف محصور بالإدارة
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update: if isStaff() || (
+        request.resource.data.title_ar is string
+        && request.resource.data.title_ar.size() > 0
+        && request.resource.data.title_ar.size() <= 300
+        && request.resource.data.original_price is number
+        && request.resource.data.original_price > 0
+      );
+      allow delete: if isStaff();
+    }
+
+    // Users: المستخدم يعدل حسابه فقط، دون تغيير أو ترقية الـ role، والأدمن يملك الصلاحية الكاملة
+    match /users/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow create: if request.auth != null && request.auth.uid == userId 
+        && (!request.resource.data.keys().hasAll(['role']) || request.resource.data.role == 'customer');
+      allow update: if request.auth != null && (
+        (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))
+        || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Cart & Favorites: خاصة بالمستخدم فقط
+    match /users/{userId}/cart/{itemId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/favorites/{productId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Reviews: إنشاء للمستخدم، قراءة عامة، إدارة للأدمن
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && (request.auth.uid == resource.data.userId || isAdmin());
+    }
+
+    // Supplier Intelligence Hub & Pricing AI: قراءة وكتابة لدعم لوحة الإدارة ومستشار الذكاء الاصطناعي
+    match /supplier_ai_suppliers/{document=**} {
+      allow read, write: if true;
+    }
+    match /supplier_ai_supplier_products/{document=**} {
+      allow read, write: if true;
+    }
+    match /supplier_ai_price_observations/{document=**} {
+      allow read, write: if true;
+    }
+    match /supplier_ai_conversations/{document=**} {
+      allow read, write: if true;
+    }
+    match /supplier_ai_messages/{document=**} {
+      allow read, write: if true;
+    }
+    match /supplier_product_drafts/{document=**} {
+      allow read, write: if true;
+    }
+    match /supplier_ai_product_drafts/{document=**} {
+      allow read, write: if true;
+    }
+    match /supplier_ai_imports/{document=**} {
+      allow read, write: if true;
+    }
+    match /supplier_ai_supplier_documents/{document=**} {
+      allow read, write: if true;
+    }
+    match /supplier_ai_purchase_links/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Pricing AI & Supplier Memory
+    match /pricing_ai_conversations/{document=**} {
+      allow read, write: if true;
+    }
+    match /pricing_ai_messages/{document=**} {
+      allow read, write: if true;
+    }
+    match /pricing_ai_price_observations/{document=**} {
+      allow read, write: if true;
+    }
+    match /pricing_ai_settings/{document=**} {
+      allow read, write: if true;
+    }
+    match /pricing_ai_import_records/{document=**} {
+      allow read, write: if true;
+    }
+    match /pricing_ai_recommendations/{document=**} {
+      allow read, write: if true;
+    }
+    match /pricing_ai_purchase_groups/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Legacy suppliers and submission staging rules
+    match /suppliers/{document=**} {
+      allow read, write: if true;
+    }
+    match /supplier_submissions/{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

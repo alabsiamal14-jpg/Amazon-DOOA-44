@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Production builds
+dist/
+build/
+.vercel/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+*.zip
+*.tar.gz
+
+# Coverage and Test Results
+coverage/
+test-results/
+playwright-report/
+.gmp_cache/
+.vite/
+
+# Legacy nested archive directory (prevent duplicate Next.js repo push to GitHub)
+Amazon-Duaa-v1/
